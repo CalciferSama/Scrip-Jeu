@@ -12,8 +12,8 @@ from webdriver_manager.firefox import GeckoDriverManager
 import google.generativeai as genai
 import requests  # Still needed for Discord webhook
 # Variables
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"  # Replace with your actual Gemini API key
-DISCORD_WEBHOOK_URL = "YOUR_DISCORD_WEBHOOK_URL"  # Replace with your Discord webhook URL
+GEMINI_API_KEY = "AIzaSyDVfIrN6wSf6KBofx9V1my9hX5q90ST9tw"  # Replace with your actual Gemini API key
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1358636041270989041/TujDmyYjkPznIch9iZZwaJd09kp-5KoSRPcDC2SUgb7Qy8T7JP_82jLe4fVMncC3wptH"  # Replace with your Discord webhook URL
 # Configure the Gemini API with your API key
 genai.configure(api_key=GEMINI_API_KEY)
 # Select the Gemini Pro Vision model (for multimodal input)
