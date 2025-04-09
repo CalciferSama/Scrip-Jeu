@@ -1,114 +1,120 @@
- 
 import time
 import logging
-import os
+import asyncio
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.firefox.options import Options
-from selenium.webdriver.firefox.service import Service
-from webdriver_manager.firefox import GeckoDriverManager
+from selenium.webdriver.edge.service import Service
+from selenium.webdriver.edge.options import Options
+from PIL import Image
 import google.generativeai as genai
-import requests  # Still needed for Discord webhook
-# Variables
-GEMINI_API_KEY = "AIzaSyDVfIrN6wSf6KBofx9V1my9hX5q90ST9tw"  # Replace with your actual Gemini API key
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1358636041270989041/TujDmyYjkPznIch9iZZwaJd09kp-5KoSRPcDC2SUgb7Qy8T7JP_82jLe4fVMncC3wptH"  # Replace with your Discord webhook URL
-# Configure the Gemini API with your API key
+
+# Configuration du logging
+logging.basicConfig(level=logging.INFO)
+
+# Clé API Gemini + modèle à jour
+GEMINI_API_KEY = "AIzaSyDVfIrN6wSf6KBofx9V1my9hX5q90ST9tw"
 genai.configure(api_key=GEMINI_API_KEY)
-# Select the Gemini Pro Vision model (for multimodal input)
-model = genai.GenerativeModel('gemini-pro-vision')
-# Fonction pour envoyer l'image à l'API Gemini pour analyse
-async def send_image_to_gemini_api(image_path, prompt="Describe the text in this image."):
-    """Sends a local image to the Gemini API for analysis.
-    Args:
-        image_path (str): The path to the local image file.
-        prompt (str, optional): An optional text prompt to accompany the image.
-                                Defaults to "Describe the text in this image.".
-    Returns:
-        str: The text response from the Gemini API, or None if an error occurs.
-    """
-    if not os.path.exists(image_path):
-        logging.error(f"Image file not found at {image_path}")
-        return None
+model = genai.GenerativeModel('models/gemini-1.5-flash')
+
+# Lancer Edge + Selenium
+def setup_driver():
+    options = Options()
+    options.headless = False
+    edge_driver_path = "C:/Users/Meddy/OneDrive - student.helmo.be/Bureau/msedgedriver.exe"
+    service = Service(edge_driver_path)
+    driver = webdriver.Edge(service=service, options=options)
+    driver.set_window_size(1920, 1080)
+    return driver
+
+# Recadrer le captcha
+def crop_captcha_image(screenshot_path, crop_box):
+    with Image.open(screenshot_path) as img:
+        logging.info(f"Taille image avant recadrage : {img.size}")
+        cropped_img = img.crop(crop_box)
+        cropped_screenshot_path = screenshot_path.replace(".png", "_cropped.png")
+        cropped_img.save(cropped_screenshot_path)
+        logging.info(f"Image recadrée enregistrée : {cropped_screenshot_path}")
+        return cropped_screenshot_path
+
+# Envoyer à Gemini pour lire le texte
+async def send_image_to_gemini_api(image_path, prompt="Lis ce captcha :"):
     try:
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
-        contents = [
-            {
-                "parts": [
-                    {"mime_type": "image/*", "data": image_data},  # Gemini can infer the type
-                    {"text": prompt},
-                ]
-            }
-        ]
-        response = model.generate_content(contents)
-        response.resolve()  # Ensure the response is fully processed
-        return response.text
+        response = model.generate_content([{"mime_type": "image/png", "data": image_data}, {"text": prompt}])
+        response.resolve()
+        return response.text.strip()
     except Exception as e:
-        logging.error(f"Error sending image to Gemini API: {e}")
+        logging.error(f"Erreur Gemini : {e}")
         return None
-# Fonction pour envoyer un message sur Discord
-def send_to_discord(message):
-    payload = {"content": message}
-    try:
-        response = requests.post(DISCORD_WEBHOOK_URL, json=payload)
-        response.raise_for_status()  # Raise an exception for bad status codes
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error sending message to Discord: {e}")
-# Fonction pour configurer et lancer le navigateur Firefox
-def setup_driver():
-    options = Options()
-    options.headless = False  # Ne pas utiliser le mode headless pour voir l'interface
-    options.add_argument("--start-fullscreen")  # Ouvrir en plein écran
-    driver_path = GeckoDriverManager().install()
-    service = Service(driver_path)
-    driver = webdriver.Firefox(service=service, options=options)
-    return driver
-# Fonction principale pour voter et analyser l'image du captcha
-def vote_and_generate():
-    # Lancer le navigateur
+
+# Fonction principale
+async def vote_and_generate():
     driver = setup_driver()
     try:
-        # Ouvrir la page de vote
+        logging.info("Ouverture de la page...")
         driver.get("https://top-serveurs.net/rdr/vote/sunny-western")
-        logging.info("Page ouverte avec succès.")
+        logging.info("Page chargée.")
+
         # Accepter les cookies
-        accept_cookies_button = WebDriverWait(driver, 20).until(
+        accept_btn = WebDriverWait(driver, 15).until(
             EC.element_to_be_clickable((By.XPATH, "//p[contains(text(), 'Autoriser')]"))
         )
-        accept_cookies_button.click()
-        logging.info("Cookies acceptés.")
-        # Insérer le pseudo
+        accept_btn.click()
+
+        # Entrer le pseudo
         pseudo_input = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, "playername"))
         )
         pseudo_input.send_keys("Tekashi Nomura")
-        logging.info("Pseudo 'Tekashi Nomura' inséré.")
-        # Prendre la capture d'écran
+        logging.info("Pseudo inséré.")
+
+        # Pause pour que le captcha s'affiche
+        time.sleep(3)
+
+        # Capturer l'écran du captcha
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         screenshot_path = f"C:/Users/Meddy/OneDrive/Images/Screenshots/captcha_{timestamp}.png"
         driver.save_screenshot(screenshot_path)
-        logging.info(f"Capture d'écran enregistrée : {screenshot_path}")
-        # Envoyer l'image à l'API Gemini pour analyse
-        gemini_response_text = send_image_to_gemini_api(screenshot_path, prompt="What text do you see in this image? If there is no text, say 'No text detected'.")
-        if gemini_response_text:
-            logging.info(f"Texte détecté par Gemini : {gemini_response_text}")
-            # Envoi du texte du captcha sur Discord
-            send_to_discord(f"Texte du captcha (Gemini): {gemini_response_text}")
+        logging.info(f"Capture écran enregistrée : {screenshot_path}")
+
+        # Recadrer l'image du captcha
+        captcha_box = (1008, 780, 1450, 925)  # Ajuste si nécessaire
+        cropped_path = crop_captcha_image(screenshot_path, captcha_box)
+
+        # Résoudre le captcha avec Gemini
+        captcha_solution = await send_image_to_gemini_api(cropped_path)
+        if captcha_solution:
+            logging.info(f"Solution captchée : {captcha_solution}")
+
+            # Trouver et cliquer sur le champ du captcha pour simuler un clic
+            captcha_input = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.ID, "mtcap-inputtext-1"))
+            )
+            captcha_input.click()  # Simule un clic sur le champ
+            captcha_input.clear()  # Nettoyer le champ
+            captcha_input.send_keys(captcha_solution)  # Entrer la solution du captcha
+            logging.info("Solution captcha entrée dans le champ.")
+
+            # Optionnel : Clique sur le bouton de vote
+            vote_btn = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Voter')]"))
+            )
+            vote_btn.click()  # Clic sur le bouton de vote
+            logging.info("Vote effectué.")
+
         else:
-            logging.warning("Aucun texte détecté par Gemini ou erreur lors de l'analyse.")
-            send_to_discord("Erreur lors de l'analyse du captcha par Gemini.")
+            logging.warning("Pas de solution détectée.")
+
     except Exception as e:
-        logging.error(f"Une erreur est survenue : {e}")
-        send_to_discord(f"Erreur : {e}")
+        logging.error(f"Erreur du script : {e}")
     finally:
-        # Fermeture du navigateur
         driver.quit()
-        logging.info("Script terminé et navigateur fermé.")
-# Fonction pour configurer les logs
-def setup_logging():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+        logging.info("Navi fermé. Script terminé.")
+
+# Lancer le script
 if __name__ == "__main__":
-    setup_logging()
-    vote_and_generate()
+    asyncio.run(vote_and_generate())
