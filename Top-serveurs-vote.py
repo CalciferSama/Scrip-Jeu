@@ -1,15 +1,17 @@
 import time
 import logging
 import asyncio
+import requests
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.edge.service import Service
 from selenium.webdriver.edge.options import Options
 from PIL import Image
+import pyautogui
 import google.generativeai as genai
+import re
 
 # Configuration du logging
 logging.basicConfig(level=logging.INFO)
@@ -18,6 +20,16 @@ logging.basicConfig(level=logging.INFO)
 GEMINI_API_KEY = "AIzaSyDVfIrN6wSf6KBofx9V1my9hX5q90ST9tw"
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('models/gemini-1.5-flash')
+
+# Webhook Discord
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1358636041270989041/TujDmyYjkPznIch9iZZwaJd09kp-5KoSRPcDC2SUgb7Qy8T7JP_82jLe4fVMncC3wptH"
+
+# Fonction d'envoi de message à Discord
+def notify_discord(message):
+    try:
+        requests.post(DISCORD_WEBHOOK_URL, json={"content": message})
+    except Exception as e:
+        logging.error(f"Erreur lors de l'envoi Discord : {e}")
 
 # Lancer Edge + Selenium
 def setup_driver():
@@ -40,7 +52,7 @@ def crop_captcha_image(screenshot_path, crop_box):
         return cropped_screenshot_path
 
 # Envoyer à Gemini pour lire le texte
-async def send_image_to_gemini_api(image_path, prompt="Lis ce captcha :"):
+async def send_image_to_gemini_api(image_path, prompt="Lis uniquement le texte du captcha, sans explication :"):
     try:
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
@@ -51,70 +63,73 @@ async def send_image_to_gemini_api(image_path, prompt="Lis ce captcha :"):
         logging.error(f"Erreur Gemini : {e}")
         return None
 
+# Filtrer le texte captcha
+def filter_captcha_solution(solution):
+    match = re.search(r'\b[A-Z0-9]{5,}\b', solution)
+    if match:
+        return match.group(0)
+    return solution.strip()
+
 # Fonction principale
 async def vote_and_generate():
     driver = setup_driver()
     try:
-        logging.info("Ouverture de la page...")
+        notify_discord("🔄 Début du processus de vote automatique...")
         driver.get("https://top-serveurs.net/rdr/vote/sunny-western")
-        logging.info("Page chargée.")
+        notify_discord("🌐 Page de vote chargée.")
 
-        # Accepter les cookies
         accept_btn = WebDriverWait(driver, 15).until(
             EC.element_to_be_clickable((By.XPATH, "//p[contains(text(), 'Autoriser')]"))
         )
         accept_btn.click()
 
-        # Entrer le pseudo
         pseudo_input = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, "playername"))
         )
         pseudo_input.send_keys("Tekashi Nomura")
-        logging.info("Pseudo inséré.")
+        notify_discord("📝 Pseudo inséré : Tekashi Nomura")
 
-        # Pause pour que le captcha s'affiche
         time.sleep(3)
 
-        # Capturer l'écran du captcha
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         screenshot_path = f"C:/Users/Meddy/OneDrive/Images/Screenshots/captcha_{timestamp}.png"
         driver.save_screenshot(screenshot_path)
-        logging.info(f"Capture écran enregistrée : {screenshot_path}")
+        notify_discord("📸 Screenshot du captcha capturé.")
 
-        # Recadrer l'image du captcha
-        captcha_box = (1008, 780, 1450, 925)  # Ajuste si nécessaire
+        captcha_box = (1008, 780, 1450, 925)  # À ajuster si besoin
         cropped_path = crop_captcha_image(screenshot_path, captcha_box)
+        notify_discord("✂️ Image captcha recadrée, envoi à Gemini...")
 
-        # Résoudre le captcha avec Gemini
         captcha_solution = await send_image_to_gemini_api(cropped_path)
         if captcha_solution:
+            captcha_solution = filter_captcha_solution(captcha_solution)
             logging.info(f"Solution captchée : {captcha_solution}")
+            notify_discord(f"✅ Solution captcha trouvée : `{captcha_solution}`")
 
-            # Trouver et cliquer sur le champ du captcha pour simuler un clic
-            captcha_input = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.ID, "mtcap-inputtext-1"))
-            )
-            captcha_input.click()  # Simule un clic sur le champ
-            captcha_input.clear()  # Nettoyer le champ
-            captcha_input.send_keys(captcha_solution)  # Entrer la solution du captcha
-            logging.info("Solution captcha entrée dans le champ.")
-
-            # Optionnel : Clique sur le bouton de vote
-            vote_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[contains(text(),'Voter')]"))
-            )
-            vote_btn.click()  # Clic sur le bouton de vote
-            logging.info("Vote effectué.")
+            time.sleep(2)
+            pyautogui.press("tab", presses=4, interval=0.2)
+            pyautogui.write(captcha_solution, interval=0.05)
+            time.sleep(3)
+            pyautogui.press("tab", presses=2, interval=0.2)
+            pyautogui.press("enter")
+            notify_discord("📤 Vote soumis avec succès !")
 
         else:
-            logging.warning("Pas de solution détectée.")
+            notify_discord("⚠️ Aucune solution détectée par Gemini !")
 
     except Exception as e:
         logging.error(f"Erreur du script : {e}")
+        notify_discord(f"❌ Erreur dans le script : {e}")
     finally:
+        time.sleep(15)
         driver.quit()
-        logging.info("Navi fermé. Script terminé.")
+        notify_discord("🛑 Navigateur fermé. Script terminé.")
 
-# Lancer le script
+# Boucle d'exécution
 if __name__ == "__main__":
-    asyncio.run(vote_and_generate())
+    while True:
+        logging.info("Début de l'exécution du script...")
+        notify_discord("🕒 Lancement d'un nouveau vote automatique.")
+        asyncio.run(vote_and_generate())
+        notify_discord("⏳ Prochain vote dans 2 heures et 1 minute...")
+        time.sleep(2 * 3600 + 60)
